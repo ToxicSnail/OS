@@ -1,81 +1,119 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <string.h>
 #include <signal.h>
-#include <event2/event.h>
-#include <event2/listener.h>
+#include <sys/socket.h>
+#include <arpa/inet.h>
 
-// Функция, которая будет вызываться при событии (получении данных или сигнала)
-void event_callback(evutil_socket_t fd, short events, void *arg) {
-    struct event *ev = (struct event *)arg;
-    
-    if (events & EV_READ) {
-        char buffer[1024];
-        ssize_t n = recv(fd, buffer, sizeof(buffer), 0);
-        if (n <= 0) {
-            // Ошибка или соединение закрыто
-            event_del(ev);
-            close(fd);
-        } else {
-            printf("Получено %zd байт данных\n", n);
-        }
-    } else if (events & EV_SIGNAL) {
-        // Обработка сигнала SIGHUP
-        printf("Получен сигнал SIGHUP\n");
+#define PORT 8080
+#define MAX_CONNECTIONS 5
+
+volatile sig_atomic_t is_running = 1;
+
+void signal_handler(int signo) {
+    if (signo == SIGHUP) {
+        printf("Received SIGHUP signal\n");
+        // Дополнительная обработка SIGHUP (по вашему выбору)
     }
 }
 
 int main() {
-    // Инициализация libevent
-    struct event_base *base = event_base_new();
-    if (!base) {
-        fprintf(stderr, "Ошибка инициализации libevent\n");
-        return 1;
+    // Установка обработчика сигнала SIGHUP
+    struct sigaction sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_handler = signal_handler;
+    sigaction(SIGHUP, &sa, NULL);
+
+    // Создание сокета
+    int server_socket;
+    if ((server_socket = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
+        perror("Socket creation failed");
+        exit(EXIT_FAILURE);
     }
 
-    // Создание и настройка структуры для обработки сигнала SIGHUP
-    struct event *sighup_event = evsignal_new(base, SIGHUP, event_callback, NULL);
-    if (!sighup_event || event_add(sighup_event, NULL) < 0) {
-        fprintf(stderr, "Ошибка настройки обработки сигнала SIGHUP\n");
-        return 1;
+    struct sockaddr_in server_addr;
+    memset(&server_addr, 0, sizeof(server_addr));
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    server_addr.sin_port = htons(PORT);
+
+    // Привязка соксета к адресу и порту
+    if (bind(server_socket, (struct sockaddr *)&server_addr, sizeof(server_addr)) == -1) {
+        perror("Bind failed");
+        exit(EXIT_FAILURE);
     }
 
-    // Создание и настройка сервера для принятия соединений на порту 12345
-    struct sockaddr_in sin;
-    memset(&sin, 0, sizeof(sin));
-    sin.sin_family = AF_INET;
-    sin.sin_addr.s_addr = htonl(INADDR_ANY);
-    sin.sin_port = htons(12345);
-
-    struct evconnlistener *listener = evconnlistener_new_bind(
-        base,
-        NULL,
-        NULL,
-        LEV_OPT_REUSEABLE | LEV_OPT_CLOSE_ON_FREE,
-        -1,
-        (struct sockaddr *)&sin,
-        sizeof(sin)
-    );
-
-    if (!listener) {
-        fprintf(stderr, "Ошибка создания сервера\n");
-        return 1;
+    // Начало прослушивания порта
+    if (listen(server_socket, MAX_CONNECTIONS) == -1) {
+        perror("Listen failed");
+        exit(EXIT_FAILURE);
     }
 
-    evconnlistener_set_error_cb(listener, NULL);
+    fd_set read_fds, temp_fds;
+    FD_ZERO(&read_fds);
+    FD_SET(server_socket, &read_fds);
+    int max_fd = server_socket;
 
-    // Запуск цикла обработки событий
-    event_base_dispatch(base);
+    while (is_running) {
+        temp_fds = read_fds;
 
-    // Освобождение ресурсов
-    evconnlistener_free(listener);
-    event_free(sighup_event);
-    event_base_free(base);
+        struct timespec timeout;
+        timeout.tv_sec = 1;  // Ждем 1 секунду
+        timeout.tv_nsec = 0;
+
+        int result = pselect(max_fd + 1, &temp_fds, NULL, NULL, &timeout, NULL);
+        if (result == -1) {
+            perror("pselect");
+            continue;
+        } else if (result == 0) {
+            // Время ожидания истекло, можно выполнить какие-либо действия
+        }
+
+        for (int fd = 0; fd <= max_fd; fd++) {
+            if (FD_ISSET(fd, &temp_fds)) {
+                if (fd == server_socket) {
+                    // Новое входящее соединение
+                    int client_socket;
+                    if ((client_socket = accept(server_socket, NULL, NULL)) == -1) {
+                        perror("Accept failed");
+                        continue;
+                    }
+
+                    printf("New connection accepted\n");
+
+                    // Закрываем все остальные соединения
+                    for (int i = 0; i <= max_fd; i++) {
+                        if (FD_ISSET(i, &read_fds) && i != server_socket && i != client_socket) {
+                            close(i);
+                            FD_CLR(i, &read_fds);
+                        }
+                    }
+
+                    FD_SET(client_socket, &read_fds);
+                    if (client_socket > max_fd) {
+                        max_fd = client_socket;
+                    }
+                } else {
+                    // Данные в существующем соединении
+                    char buffer[1024];
+                    ssize_t bytes_read = recv(fd, buffer, sizeof(buffer), 0);
+                    if (bytes_read <= 0) {
+                        // Соединение закрыто или произошла ошибка
+                        printf("Connection closed\n");
+                        close(fd);
+                        FD_CLR(fd, &read_fds);
+                    } else {
+                        buffer[bytes_read] = '\0';
+                        printf("Received data from client: %s\n", buffer);
+                    }
+                }
+            }
+        }
+    }
+
+    // Закрытие серверного соксета и освобождение ресурсов
+    close(server_socket);
 
     return 0;
 }
-
-
-
-
-
