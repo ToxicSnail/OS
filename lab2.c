@@ -21,7 +21,7 @@ void signal_handler(int signo) {
 int main() {
     // Установка обработчика сигнала SIGHUP
     struct sigaction sa;
-    memset(&sa, 0, sizeof(struct sigaction)); // Исправленная строка
+    memset(&sa, 0, sizeof(struct sigaction)); // Исправление здесь
     sa.sa_handler = signal_handler;
     sigaction(SIGHUP, &sa, NULL);
 
