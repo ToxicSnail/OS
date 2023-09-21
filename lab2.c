@@ -25,7 +25,7 @@ int main(int argc, char *argv[]) {
     int server_sock, client_sock;
     struct sockaddr_in server_addr, client_addr;
     socklen_t client_addr_len = sizeof(client_addr);
-    int port = atoi(argv[1]);
+    int port = atoi(argv[1]);    //преобр строки в число
 
     // Создание сокета
     if ((server_sock = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
