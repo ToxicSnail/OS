@@ -7,15 +7,6 @@
 #include <netinet/in.h>    //для работы с сетевыми адресами    
 #include <arpa/inet.h>    //для работы с IP-адресами
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
-#include <signal.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-
 volatile sig_atomic_t keep_running = 1;
 
 void handle_signal(int signo) {
