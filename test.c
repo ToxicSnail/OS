@@ -6,6 +6,8 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <sys/select.h>
+#include <time.h>
 
 volatile sig_atomic_t keep_running = 1;
 
@@ -59,13 +61,16 @@ int main(int argc, char *argv[]) {
     fd_set readfds;
     FD_ZERO(&readfds);
     FD_SET(server_sock, &readfds);
+    int max_fd = server_sock; // Текущее максимальное значение дескриптора сокса
+
+    struct timespec timeout = {5, 0}; // 5 seconds
 
     while (keep_running) {
-        int max_fd = server_sock;
+        // Копируем набор дескрипторов, так как select изменяет его
+        fd_set temp_fds = readfds;
 
         // Wait for activity on sockets using pselect
-        struct timespec timeout = {5, 0}; // 5 seconds
-        int ready_fds = pselect(max_fd + 1, &readfds, NULL, NULL, &timeout, NULL);
+        int ready_fds = pselect(max_fd + 1, &temp_fds, NULL, NULL, &timeout, NULL);
 
         if (ready_fds == -1) {
             perror("pselect error");
@@ -74,7 +79,7 @@ int main(int argc, char *argv[]) {
             printf("No activity on sockets\n");
         } else {
             // Check for incoming connections
-            if (FD_ISSET(server_sock, &readfds)) {
+            if (FD_ISSET(server_sock, &temp_fds)) {
                 if ((client_sock = accept(server_sock, (struct sockaddr *)&client_addr, &client_addr_len)) == -1) {
                     perror("Accept failed");
                 } else {
@@ -95,7 +100,7 @@ int main(int argc, char *argv[]) {
 
             // Check for data on client sockets
             for (int i = server_sock + 1; i <= max_fd; i++) {
-                if (FD_ISSET(i, &readfds)) {
+                if (FD_ISSET(i, &temp_fds)) {
                     char buffer[1024];
                     ssize_t bytes_read = recv(i, buffer, sizeof(buffer), 0);
 
@@ -116,7 +121,7 @@ int main(int argc, char *argv[]) {
     }
 
     // Close all client sockets
-    for (int i = server_sock + 1; i <= FD_SETSIZE; i++) {
+    for (int i = server_sock + 1; i <= max_fd; i++) {
         if (FD_ISSET(i, &readfds)) {
             close(i);
         }
