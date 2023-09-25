@@ -7,13 +7,6 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
-volatile sig_atomic_t keep_running = 1;
-
-void handle_signal(int signo) {
-    // Этот обработчик для других сигналов, поэтому можно просто выйти
-    keep_running = 0;
-}
-
 int main(int argc, char *argv[]) {
     if (argc != 2) {
         fprintf(stderr, "Usage: %s <port>\n", argv[0]);
@@ -53,30 +46,26 @@ int main(int argc, char *argv[]) {
 
     printf("Server is running on port %d\n", port);
 
-    // Use pselect for signal handling and incoming connections
     fd_set read_fds;
-    struct timeval timeout;
+    FD_ZERO(&read_fds);
+    FD_SET(server_sock, &read_fds);
+    int max_fd = server_sock;
 
-    while (keep_running) {
-        FD_ZERO(&read_fds);
-        FD_SET(server_sock, &read_fds);
-
+    while (1) {
+        fd_set temp_fds = read_fds;
+        struct timeval timeout;
         timeout.tv_sec = 0;
-        timeout.tv_usec = 500000; // 0.5 seconds
+        timeout.tv_usec = 0;
 
-        int activity = pselect(server_sock + 1, &read_fds, NULL, NULL, &timeout, NULL);
+        int num_ready = pselect(max_fd + 1, &temp_fds, NULL, NULL, &timeout, NULL);
 
-        if (activity < 0 && errno != EINTR) {
+        if (num_ready == -1) {
             perror("pselect");
+            break;
         }
 
-        if (activity == 0) {
-            // No activity, continue waiting
-            continue;
-        }
-
-        if (FD_ISSET(server_sock, &read_fds)) {
-            // Accept a new client connection
+        // Check for new connection
+        if (FD_ISSET(server_sock, &temp_fds)) {
             if ((client_sock = accept(server_sock, (struct sockaddr *)&client_addr, &client_addr_len)) == -1) {
                 perror("Accept failed");
                 continue;
@@ -85,27 +74,41 @@ int main(int argc, char *argv[]) {
             // Log the new connection
             char client_ip[INET_ADDRSTRLEN];
             inet_ntop(AF_INET, &client_addr.sin_addr, client_ip, sizeof(client_ip));
-            printf("Accepted connection from %s:%d\n", client_ip, ntohs(client_addr.sin_port);
+            printf("Accepted connection from %s:%d\n", client_ip, ntohs(client_addr.sin_port));
 
-            // Read and process data from the client
-            char buffer[1024];
-            ssize_t bytes_read;
-            while ((bytes_read = recv(client_sock, buffer, sizeof(buffer), 0)) > 0) {
-                printf("Received %zd bytes from the client\n", bytes_read);
-                // You can process the data here as needed
+            FD_SET(client_sock, &read_fds);
+            if (client_sock > max_fd) {
+                max_fd = client_sock;
             }
+        }
 
-            if (bytes_read == -1) {
-                perror("Recv failed");
+        // Check for data on existing connections
+        for (int fd = server_sock + 1; fd <= max_fd; ++fd) {
+            if (FD_ISSET(fd, &temp_fds)) {
+                char buffer[1024];
+                ssize_t bytes_read = recv(fd, buffer, sizeof(buffer), 0);
+                if (bytes_read <= 0) {
+                    if (bytes_read == 0) {
+                        printf("Client closed the connection\n");
+                    } else {
+                        perror("Recv failed");
+                    }
+                    close(fd);
+                    FD_CLR(fd, &read_fds);
+                } else {
+                    printf("Received %zd bytes from client\n", bytes_read);
+                    // You can process the received data here
+                }
             }
-
-            // Close the client socket
-            close(client_sock);
         }
     }
 
-    // Close the server socket
+    // Close all open sockets
+    for (int fd = server_sock + 1; fd <= max_fd; ++fd) {
+        close(fd);
+    }
     close(server_sock);
+
     printf("Server is shutting down\n");
     return 0;
 }
