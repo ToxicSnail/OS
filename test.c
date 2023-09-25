@@ -6,7 +6,13 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
-#include <sys/select.h>
+
+volatile sig_atomic_t keep_running = 1;
+
+void handle_signal(int signo) {
+    // Обработчик сигналов не делает ничего, кроме завершения цикла pselect
+    keep_running = 0;
+}
 
 int main(int argc, char *argv[]) {
     if (argc != 2) {
@@ -45,67 +51,74 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
+    // Register signal handler for SIGHUP
+    signal(SIGHUP, handle_signal);
+
     printf("Server is running on port %d\n", port);
 
-    fd_set read_fds;
-    int max_fd;
+    fd_set readfds;
+    FD_ZERO(&readfds);
+    FD_SET(server_sock, &readfds);
 
-    while (1) {
-        FD_ZERO(&read_fds);
-        FD_SET(server_sock, &read_fds);
-        max_fd = server_sock;
+    while (keep_running) {
+        int max_fd = server_sock;
 
-        // Accept new client connections
-        if ((client_sock = accept(server_sock, (struct sockaddr *)&client_addr, &client_addr_len)) == -1) {
-            perror("Accept failed");
-            continue;
-        }
+        // Wait for activity on sockets using pselect
+        struct timespec timeout = {5, 0}; // 5 seconds
+        int ready_fds = pselect(max_fd + 1, &readfds, NULL, NULL, &timeout, NULL);
 
-        FD_SET(client_sock, &read_fds);
-        if (client_sock > max_fd) {
-            max_fd = client_sock;
-        }
+        if (ready_fds == -1) {
+            perror("pselect error");
+            break;
+        } else if (ready_fds == 0) {
+            printf("No activity on sockets\n");
+        } else {
+            // Check for incoming connections
+            if (FD_ISSET(server_sock, &readfds)) {
+                if ((client_sock = accept(server_sock, (struct sockaddr *)&client_addr, &client_addr_len)) == -1) {
+                    perror("Accept failed");
+                } else {
+                    // Log the new connection
+                    char client_ip[INET_ADDRSTRLEN];
+                    inet_ntop(AF_INET, &client_addr.sin_addr, client_ip, sizeof(client_ip));
+                    printf("Accepted connection from %s:%d\n", client_ip, ntohs(client_addr.sin_port));
 
-        // Log the new connection
-        char client_ip[INET_ADDRSTRLEN];
-        inet_ntop(AF_INET, &client_addr.sin_addr, client_ip, sizeof(client_ip));
-        printf("Accepted connection from %s:%d\n", client_ip, ntohs(client_addr.sin_port));
+                    // Add the client socket to the set
+                    FD_SET(client_sock, &readfds);
 
-        // Read and process data from the client
-        char buffer[1024];
-        ssize_t bytes_read;
-
-        while (1) {
-            fd_set tmp_fds = read_fds;
-            if (pselect(max_fd + 1, &tmp_fds, NULL, NULL, NULL, NULL) == -1) {
-                perror("pselect failed");
-                break;
-            }
-
-            for (int fd = 0; fd <= max_fd; fd++) {
-                if (FD_ISSET(fd, &tmp_fds)) {
-                    if (fd == server_sock) {
-                        // New client connection
-                        continue;
-                    } else {
-                        // Data from client
-                        bytes_read = recv(fd, buffer, sizeof(buffer), 0);
-                        if (bytes_read <= 0) {
-                            // Connection closed or error
-                            if (bytes_read == 0) {
-                                printf("Client %d disconnected\n", fd);
-                            } else {
-                                perror("Recv failed");
-                            }
-                            close(fd);
-                            FD_CLR(fd, &read_fds);
-                        } else {
-                            printf("Received %zd bytes from client %d\n", bytes_read, fd);
-                            // You can process the data here as needed
-                        }
+                    // Update max_fd if necessary
+                    if (client_sock > max_fd) {
+                        max_fd = client_sock;
                     }
                 }
             }
+
+            // Check for data on client sockets
+            for (int i = server_sock + 1; i <= max_fd; i++) {
+                if (FD_ISSET(i, &readfds)) {
+                    char buffer[1024];
+                    ssize_t bytes_read = recv(i, buffer, sizeof(buffer), 0);
+
+                    if (bytes_read == -1) {
+                        perror("Recv failed");
+                    } else if (bytes_read == 0) {
+                        // Connection closed by client
+                        printf("Connection closed by client\n");
+                        close(i);
+                        FD_CLR(i, &readfds);
+                    } else {
+                        printf("Received %zd bytes from client\n", bytes_read);
+                        // Process data here if needed
+                    }
+                }
+            }
+        }
+    }
+
+    // Close all client sockets
+    for (int i = server_sock + 1; i <= FD_SETSIZE; i++) {
+        if (FD_ISSET(i, &readfds)) {
+            close(i);
         }
     }
 
