@@ -2,10 +2,12 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>    //close для сокета и для sleep
-#include <signal.h>    
+#include <signal.h>
 #include <sys/socket.h>    //для работы с сокетами
-#include <netinet/in.h>    //для работы с сетевыми адресами    
+#include <netinet/in.h>    //для работы с сетевыми адресами 
 #include <arpa/inet.h>    //для работы с IP-адресами
+#include <sys/select.h>    //для работы pselect
+#include <time.h>
 
 volatile sig_atomic_t keep_running = 1;
 
@@ -23,7 +25,7 @@ int main(int argc, char *argv[]) {
     int server_sock, client_sock;
     struct sockaddr_in server_addr, client_addr;
     socklen_t client_addr_len = sizeof(client_addr);
-    int port = atoi(argv[1]);
+    int port = atoi(argv[1]);    //преобр строки в число
 
     // Создание сокета
     if ((server_sock = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
@@ -59,13 +61,16 @@ int main(int argc, char *argv[]) {
     fd_set readfds;
     FD_ZERO(&readfds);
     FD_SET(server_sock, &readfds);
+    int max_fd = server_sock; // Текущее максимальное значение дескриптора сокса
+
+    struct timespec timeout = {5, 0}; // 5 секунд
 
     while (keep_running) {
-        int max_fd = server_sock;
+        // Копируем набор дескрипторов, так как select изменяет его
+        fd_set temp_fds = readfds;
 
-        // Ожидание активности на сокетах с помощью pselect
-        struct timespec timeout = {5, 0}; // 5 seconds
-        int ready_fds = pselect(max_fd + 1, &readfds, NULL, NULL, &timeout, NULL);
+        //Ожидаем активность на сокете с использованием pselect
+        int ready_fds = pselect(max_fd + 1, &temp_fds, NULL, NULL, &timeout, NULL);
 
         if (ready_fds == -1) {
             perror("pselect error");
@@ -73,29 +78,29 @@ int main(int argc, char *argv[]) {
         } else if (ready_fds == 0) {
             printf("No activity on sockets\n");
         } else {
-            // Проверка наличия входящих соединений
-            if (FD_ISSET(server_sock, &readfds)) {
+            // Проверяем исходящее соединение
+            if (FD_ISSET(server_sock, &temp_fds)) {
                 if ((client_sock = accept(server_sock, (struct sockaddr *)&client_addr, &client_addr_len)) == -1) {
                     perror("Accept failed");
                 } else {
-                    // Регистрация нового соединения
+                    // регистрируем новое соединение
                     char client_ip[INET_ADDRSTRLEN];
                     inet_ntop(AF_INET, &client_addr.sin_addr, client_ip, sizeof(client_ip));
                     printf("Accepted connection from %s:%d\n", client_ip, ntohs(client_addr.sin_port));
 
-                    // Добавление клиентского сокета в набор
+                    // добавляем клиенсткий сокет
                     FD_SET(client_sock, &readfds);
 
-                    // Обновление max_fd при необходимости
+                    // Обновляем max_fd при необходимости
                     if (client_sock > max_fd) {
                         max_fd = client_sock;
                     }
                 }
             }
 
-            // Проверка наличия данных на клиентских сокетах
+            // Проверка наличия данных на сокетах клиентов
             for (int i = server_sock + 1; i <= max_fd; i++) {
-                if (FD_ISSET(i, &readfds)) {
+                if (FD_ISSET(i, &temp_fds)) {
                     char buffer[1024];
                     ssize_t bytes_read = recv(i, buffer, sizeof(buffer), 0);
 
@@ -114,8 +119,8 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    // Закрыть клиентский сокет
-    for (int i = server_sock + 1; i <= FD_SETSIZE; i++) {
+    // Закрыть серверный сокет
+    for (int i = server_sock + 1; i <= max_fd; i++) {
         if (FD_ISSET(i, &readfds)) {
             close(i);
         }
@@ -126,4 +131,3 @@ int main(int argc, char *argv[]) {
     printf("Server is shutting down\n");
     return 0;
 }
-
