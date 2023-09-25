@@ -7,12 +7,19 @@
 #include <netinet/in.h>    //для работы с сетевыми адресами    
 #include <arpa/inet.h>    //для работы с IP-адресами
 
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <signal.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+
 volatile sig_atomic_t keep_running = 1;
 
 void handle_signal(int signo) {
-    if (signo == SIGHUP) {
-        printf("Received SIGHUP signal\n");
-    }
+    // Обработчик сигналов не делает ничего, кроме завершения цикла pselect
     keep_running = 0;
 }
 
@@ -25,7 +32,7 @@ int main(int argc, char *argv[]) {
     int server_sock, client_sock;
     struct sockaddr_in server_addr, client_addr;
     socklen_t client_addr_len = sizeof(client_addr);
-    int port = atoi(argv[1]);    //преобр строки в число
+    int port = atoi(argv[1]);
 
     // Создание сокета
     if ((server_sock = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
@@ -58,32 +65,69 @@ int main(int argc, char *argv[]) {
 
     printf("Server is running on port %d\n", port);
 
+    fd_set readfds;
+    FD_ZERO(&readfds);
+    FD_SET(server_sock, &readfds);
+
     while (keep_running) {
-        // Прием нового клиентского соединения
-        if ((client_sock = accept(server_sock, (struct sockaddr *)&client_addr, &client_addr_len)) == -1) {
-            perror("Accept failed");
-            continue;
+        int max_fd = server_sock;
+
+        // Ожидание активности на сокетах с помощью pselect
+        struct timespec timeout = {5, 0}; // 5 seconds
+        int ready_fds = pselect(max_fd + 1, &readfds, NULL, NULL, &timeout, NULL);
+
+        if (ready_fds == -1) {
+            perror("pselect error");
+            break;
+        } else if (ready_fds == 0) {
+            printf("No activity on sockets\n");
+        } else {
+            // Проверка наличия входящих соединений
+            if (FD_ISSET(server_sock, &readfds)) {
+                if ((client_sock = accept(server_sock, (struct sockaddr *)&client_addr, &client_addr_len)) == -1) {
+                    perror("Accept failed");
+                } else {
+                    // Регистрация нового соединения
+                    char client_ip[INET_ADDRSTRLEN];
+                    inet_ntop(AF_INET, &client_addr.sin_addr, client_ip, sizeof(client_ip));
+                    printf("Accepted connection from %s:%d\n", client_ip, ntohs(client_addr.sin_port));
+
+                    // Добавление клиентского сокета в набор
+                    FD_SET(client_sock, &readfds);
+
+                    // Обновление max_fd при необходимости
+                    if (client_sock > max_fd) {
+                        max_fd = client_sock;
+                    }
+                }
+            }
+
+            // Проверка наличия данных на клиентских сокетах
+            for (int i = server_sock + 1; i <= max_fd; i++) {
+                if (FD_ISSET(i, &readfds)) {
+                    char buffer[1024];
+                    ssize_t bytes_read = recv(i, buffer, sizeof(buffer), 0);
+
+                    if (bytes_read == -1) {
+                        perror("Recv failed");
+                    } else if (bytes_read == 0) {
+                        // Соединение закрывается клиентом
+                        printf("Connection closed by client\n");
+                        close(i);
+                        FD_CLR(i, &readfds);
+                    } else {
+                        printf("Received %zd bytes from client\n", bytes_read);
+                    }
+                }
+            }
         }
+    }
 
-        // Регистрация нового соединения
-        char client_ip[INET_ADDRSTRLEN];
-        inet_ntop(AF_INET, &client_addr.sin_addr, client_ip, sizeof(client_ip));
-        printf("Accepted connection from %s:%d\n", client_ip, ntohs(client_addr.sin_port));
-
-        // Считывание и обработка данных от клиента
-        char buffer[1024];
-        ssize_t bytes_read;
-        while ((bytes_read = recv(client_sock, buffer, sizeof(buffer), 0)) > 0) {
-            printf("Received %zd bytes from the client\n", bytes_read);
-            //printf("Test bytes catched");
+    // Закрыть клиентский сокет
+    for (int i = server_sock + 1; i <= FD_SETSIZE; i++) {
+        if (FD_ISSET(i, &readfds)) {
+            close(i);
         }
-
-        if (bytes_read == -1) {
-            perror("Recv failed");
-        }
-
-        // Закрыть серверный сокет
-        close(client_sock);
     }
 
     // Закрыть серверный сокет
@@ -91,3 +135,4 @@ int main(int argc, char *argv[]) {
     printf("Server is shutting down\n");
     return 0;
 }
+
