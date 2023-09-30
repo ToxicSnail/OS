@@ -63,14 +63,19 @@ int main(int argc, char *argv[]) {
     FD_SET(server_sock, &readfds);
     int max_fd = server_sock; // Текущее максимальное значение дескриптора сокса
 
-    struct timespec timeout = {5, 0}; // 5 секунд
+    struct timespec timeout = {5, 0}; // 5 seconds
+    sigset_t original_mask; // Задаем исходную маску блокирования сигналов
+
+    // Задаем исходную маску блокирования сигналов
+    sigemptyset(&original_mask);
+    sigaddset(&original_mask, SIGHUP);
 
     while (keep_running) {
         // Копируем набор дескрипторов, так как select изменяет его
         fd_set temp_fds = readfds;
 
         //Ожидаем активность на сокете с использованием pselect
-        int ready_fds = pselect(max_fd + 1, &temp_fds, NULL, NULL, &timeout, NULL);
+        int ready_fds = pselect(max_fd + 1, &temp_fds, NULL, NULL, &timeout, &original_mask);
 
         if (ready_fds == -1) {
             perror("pselect error");
