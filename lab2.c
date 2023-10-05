@@ -75,7 +75,10 @@ int main(int argc, char *argv[]) {
         fd_set temp_fds = readfds;
 
         //Ожидаем активность на сокете с использованием pselect
-        int ready_fds = pselect(max_fd + 1, &temp_fds, NULL, NULL, &timeout, &original_mask);
+        int ready_fds;
+        do {
+            ready_fds = pselect(max_fd + 1, &temp_fds, NULL, NULL, &timeout, &original_mask);
+        } while (ready_fds == -1 && errno == EINTR);
 
         if (ready_fds == -1) {
             perror("pselect error");
@@ -83,20 +86,20 @@ int main(int argc, char *argv[]) {
         } else if (ready_fds == 0) {
             printf("No activity on sockets\n");
         } else {
-            // Проверяем исходящее соединение
+            // Проверка наличия входящих соединений
             if (FD_ISSET(server_sock, &temp_fds)) {
                 if ((client_sock = accept(server_sock, (struct sockaddr *)&client_addr, &client_addr_len)) == -1) {
                     perror("Accept failed");
                 } else {
-                    // регистрируем новое соединение
+                    // Регистрация нового соединения
                     char client_ip[INET_ADDRSTRLEN];
                     inet_ntop(AF_INET, &client_addr.sin_addr, client_ip, sizeof(client_ip));
                     printf("Accepted connection from %s:%d\n", client_ip, ntohs(client_addr.sin_port));
 
-                    // добавляем клиенсткий сокет
+                    // Добавить клиентский сокет в набор
                     FD_SET(client_sock, &readfds);
 
-                    // Обновляем max_fd при необходимости
+                    // Обновление max_fd при необходимости
                     if (client_sock > max_fd) {
                         max_fd = client_sock;
                     }
