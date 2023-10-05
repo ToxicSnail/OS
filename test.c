@@ -8,6 +8,7 @@
 #include <arpa/inet.h>
 #include <sys/select.h>
 #include <time.h>
+#include <errno.h> // Добавленный заголовочный файл для errno
 
 volatile sig_atomic_t keep_running = 1;
 
@@ -75,7 +76,10 @@ int main(int argc, char *argv[]) {
         fd_set temp_fds = readfds;
 
         // Wait for activity on sockets using pselect
-        int ready_fds = pselect(max_fd + 1, &temp_fds, NULL, NULL, &timeout, &original_mask);
+        int ready_fds;
+        do {
+            ready_fds = pselect(max_fd + 1, &temp_fds, NULL, NULL, &timeout, &original_mask);
+        } while (ready_fds == -1 && errno == EINTR);
 
         if (ready_fds == -1) {
             perror("pselect error");
