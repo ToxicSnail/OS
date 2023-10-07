@@ -8,7 +8,7 @@
 #include <arpa/inet.h>
 #include <sys/select.h>
 #include <time.h>
-#include <errno.h> // Добавленный заголовочный файл для errno
+#include <errno.h>
 
 volatile sig_atomic_t keep_running = 1;
 
@@ -65,11 +65,6 @@ int main(int argc, char *argv[]) {
     int max_fd = server_sock; // Текущее максимальное значение дескриптора сокса
 
     struct timespec timeout = {5, 0}; // 5 seconds
-    sigset_t original_mask; // Исходная маска блокирования сигналов
-
-    // Задаем исходную маску блокирования сигналов
-    sigemptyset(&original_mask);
-    sigaddset(&original_mask, SIGHUP);
 
     while (keep_running) {
         // Копируем набор дескрипторов, так как select изменяет его
@@ -78,7 +73,7 @@ int main(int argc, char *argv[]) {
         // Wait for activity on sockets using pselect
         int ready_fds;
         do {
-            ready_fds = pselect(max_fd + 1, &temp_fds, NULL, NULL, &timeout, &original_mask);
+            ready_fds = pselect(max_fd + 1, &temp_fds, NULL, NULL, &timeout, NULL);
         } while (ready_fds == -1 && errno == EINTR);
 
         if (ready_fds == -1) {
