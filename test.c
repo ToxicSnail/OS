@@ -124,16 +124,22 @@ int main(int argc, char *argv[]) {
             }
 
             // Проверка данных на соксах клиентов
+           // Проверка данных на соксах клиентов
             for (int i = server_sock + 1; i <= max_fd; i++) {
                 if (FD_ISSET(i, &temp_fds)) {
                     char buffer[1024];
                     ssize_t bytes_read = recv(i, buffer, sizeof(buffer), 0);
-
+            
                     if (bytes_read == -1) {
                         perror("Recv failed");
                     } else if (bytes_read == 0) {
-                        // Соединение закрыто клиентом
-                        printf("Connection closed by client\n");
+                        if (errno == 0) {
+                            // Это означает нормальное закрытие клиентом
+                            printf("Connection closed by client\n");
+                        } else {
+                            // Закрытие с ошибкой
+                            perror("Connection closed with error by client");
+                        }
                         close(i);
                         FD_CLR(i, &readfds);
                     } else {
