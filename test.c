@@ -60,8 +60,6 @@ int main(int argc, char *argv[]) {
     printf("Server is running on port %d\n", port);
 
     fd_set readfds;
-    FD_ZERO(&readfds);
-    FD_SET(server_sock, &readfds);
     int max_fd = server_sock;
 
     struct timespec timeout = {5, 0}; // 5 seconds
@@ -77,6 +75,9 @@ int main(int argc, char *argv[]) {
     }
 
     while (keep_running) {
+        FD_ZERO(&readfds);
+        FD_SET(server_sock, &readfds);
+
         // Копируем набор дескрипторов, так как select изменяет его
         fd_set temp_fds = readfds;
 
