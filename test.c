@@ -72,6 +72,12 @@ int main(int argc, char *argv[]) {
     sigemptyset(&origSigMask);
     sigaddset(&origSigMask, SIGHUP);
 
+    // Заблокировать сигнал SIGHUP
+    if (sigprocmask(SIG_BLOCK, &origSigMask, NULL) == -1) {
+        perror("sigprocmask error");
+        return 1;
+    }
+
     while (keep_running) {
         fd_set temp_fds = fds;
 
