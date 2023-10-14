@@ -71,12 +71,12 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    while (keep_running) {
-        fd_set readfds;
-        FD_ZERO(&readfds);
-        FD_SET(server_sock, &readfds);
-        int max_fd = server_sock;
+    fd_set readfds;
+    FD_ZERO(&readfds);
+    FD_SET(server_sock, &readfds);
+    int max_fd = server_sock;
 
+    while (keep_running) {
         // Копируем набор дескрипторов, так как pselect изменяет его
         fd_set temp_fds = readfds;
 
