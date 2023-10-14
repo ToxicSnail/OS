@@ -59,16 +59,14 @@ int main(int argc, char *argv[]) {
 
     printf("Server is running on port %d\n", port);
 
-    
-
-    struct timespec timeout = {5, 0}; // 5 seconds
-    sigset_t blockedMask, origMask;
-
     fd_set readfds;
     FD_ZERO(&readfds);
     FD_SET(server_sock, &readfds);
     int max_fd = server_sock;
-    
+
+    struct timespec timeout = {5, 0}; // 5 seconds
+    sigset_t blockedMask, origMask;
+
     sigemptyset(&blockedMask);
     sigaddset(&blockedMask, SIGHUP);
 
@@ -79,10 +77,21 @@ int main(int argc, char *argv[]) {
     }
 
     while (keep_running) {
-        // Копируем набор дескрипторов, так как select изменяет его
+        // Закрыть соксы, которые больше не нужны
+        for (int i = server_sock + 1; i <= max_fd; i++) {
+            if (FD_ISSET(i, &readfds)) {
+                // Закрыть сокс, если он не входит в набор для мониторинга
+                if (pselect(0, NULL, NULL, NULL, &timeout, &origMask) == 0) {
+                    close(i);
+                    FD_CLR(i, &readfds);
+                }
+            }
+        }
+
+        // Копировать набор дескрипторов для использования в pselect
         fd_set temp_fds = readfds;
 
-        // Wait for activity on sockets using pselect
+        // Ожидать активности на соксах с использованием pselect
         int ready_fds;
         do {
             ready_fds = pselect(max_fd + 1, &temp_fds, NULL, NULL, &timeout, &origMask);
@@ -104,7 +113,7 @@ int main(int argc, char *argv[]) {
                     inet_ntop(AF_INET, &client_addr.sin_addr, client_ip, sizeof(client_ip));
                     printf("Accepted connection from %s:%d\n", client_ip, ntohs(client_addr.sin_port));
 
-                    // Добавление сокса клиента в множество
+                    // Добавление сокса клиента в набор
                     FD_SET(client_sock, &readfds);
 
                     // Обновление max_fd при необходимости
@@ -136,14 +145,14 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    // Закрытие всех соксов клиентов
+    // Закрыть все соксы клиентов
     for (int i = server_sock + 1; i <= max_fd; i++) {
         if (FD_ISSET(i, &readfds)) {
             close(i);
         }
     }
 
-    // Закрытие сокса сервера
+    // Закрыть сокс сервера
     close(server_sock);
     printf("Server is shutting down\n");
     return 0;
