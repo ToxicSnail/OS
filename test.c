@@ -77,21 +77,10 @@ int main(int argc, char *argv[]) {
     }
 
     while (keep_running) {
-        // Закрыть соксы, которые больше не нужны
-        for (int i = server_sock + 1; i <= max_fd; i++) {
-            if (FD_ISSET(i, &readfds)) {
-                // Закрыть сокс, если он не входит в набор для мониторинга
-                if (pselect(0, NULL, NULL, NULL, &timeout, &origMask) == 0) {
-                    close(i);
-                    FD_CLR(i, &readfds);
-                }
-            }
-        }
-
-        // Копировать набор дескрипторов для использования в pselect
+        // Копируем набор дескрипторов, так как select изменяет его
         fd_set temp_fds = readfds;
 
-        // Ожидать активности на соксах с использованием pselect
+        // Wait for activity on sockets using pselect
         int ready_fds;
         do {
             ready_fds = pselect(max_fd + 1, &temp_fds, NULL, NULL, &timeout, &origMask);
@@ -113,7 +102,7 @@ int main(int argc, char *argv[]) {
                     inet_ntop(AF_INET, &client_addr.sin_addr, client_ip, sizeof(client_ip));
                     printf("Accepted connection from %s:%d\n", client_ip, ntohs(client_addr.sin_port));
 
-                    // Добавление сокса клиента в набор
+                    // Добавление сокса клиента в множество
                     FD_SET(client_sock, &readfds);
 
                     // Обновление max_fd при необходимости
@@ -124,22 +113,16 @@ int main(int argc, char *argv[]) {
             }
 
             // Проверка данных на соксах клиентов
-           // Проверка данных на соксах клиентов
             for (int i = server_sock + 1; i <= max_fd; i++) {
                 if (FD_ISSET(i, &temp_fds)) {
                     char buffer[1024];
                     ssize_t bytes_read = recv(i, buffer, sizeof(buffer), 0);
-            
+
                     if (bytes_read == -1) {
                         perror("Recv failed");
                     } else if (bytes_read == 0) {
-                        if (errno == 0) {
-                            // Это означает нормальное закрытие клиентом
-                            printf("Connection closed by client\n");
-                        } else {
-                            // Закрытие с ошибкой
-                            perror("Connection closed with error by client");
-                        }
+                        // Соединение закрыто клиентом
+                        printf("Connection closed by client\n");
                         close(i);
                         FD_CLR(i, &readfds);
                     } else {
@@ -151,14 +134,14 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    // Закрыть все соксы клиентов
+    // Закрытие всех соксов клиентов
     for (int i = server_sock + 1; i <= max_fd; i++) {
         if (FD_ISSET(i, &readfds)) {
             close(i);
         }
     }
 
-    // Закрыть сокс сервера
+    // Закрытие сокса сервера
     close(server_sock);
     printf("Server is shutting down\n");
     return 0;
