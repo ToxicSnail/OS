@@ -64,6 +64,11 @@ int main(int argc, char *argv[]) {
     struct timespec timeout = {5, 0}; // 5 seconds
     sigset_t blockedMask, origMask;
 
+    fd_set readfds;
+    FD_ZERO(&readfds);
+    FD_SET(server_sock, &readfds);
+    int max_fd = server_sock;
+    
     sigemptyset(&blockedMask);
     sigaddset(&blockedMask, SIGHUP);
 
@@ -74,10 +79,6 @@ int main(int argc, char *argv[]) {
     }
 
     while (keep_running) {
-        fd_set readfds;
-        FD_ZERO(&readfds);
-        FD_SET(server_sock, &readfds);
-        int max_fd = server_sock;
         // Копируем набор дескрипторов, так как select изменяет его
         fd_set temp_fds = readfds;
 
