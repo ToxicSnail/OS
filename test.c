@@ -62,9 +62,19 @@ int main(int argc, char *argv[]) {
     fd_set readfds;
     FD_ZERO(&readfds);
     FD_SET(server_sock, &readfds);
-    int max_fd = server_sock; // Текущее максимальное значение дескриптора сокса
+    int max_fd = server_sock;
 
     struct timespec timeout = {5, 0}; // 5 seconds
+    sigset_t blockedMask, origMask;
+
+    sigemptyset(&blockedMask);
+    sigaddset(&blockedMask, SIGHUP);
+
+    // Заблокировать сигнал SIGHUP
+    if (sigprocmask(SIG_BLOCK, &blockedMask, &origMask) == -1) {
+        perror("sigprocmask error");
+        return 1;
+    }
 
     while (keep_running) {
         // Копируем набор дескрипторов, так как select изменяет его
@@ -73,7 +83,7 @@ int main(int argc, char *argv[]) {
         // Wait for activity on sockets using pselect
         int ready_fds;
         do {
-            ready_fds = pselect(max_fd + 1, &temp_fds, NULL, NULL, &timeout, NULL);
+            ready_fds = pselect(max_fd + 1, &temp_fds, NULL, NULL, &timeout, &origMask);
         } while (ready_fds == -1 && errno == EINTR);
 
         if (ready_fds == -1) {
@@ -82,27 +92,27 @@ int main(int argc, char *argv[]) {
         } else if (ready_fds == 0) {
             printf("No activity on sockets\n");
         } else {
-            // Check for incoming connections
+            // Проверка входящих соединений
             if (FD_ISSET(server_sock, &temp_fds)) {
                 if ((client_sock = accept(server_sock, (struct sockaddr *)&client_addr, &client_addr_len)) == -1) {
                     perror("Accept failed");
                 } else {
-                    // Log the new connection
+                    // Логгирование нового соединения
                     char client_ip[INET_ADDRSTRLEN];
                     inet_ntop(AF_INET, &client_addr.sin_addr, client_ip, sizeof(client_ip));
                     printf("Accepted connection from %s:%d\n", client_ip, ntohs(client_addr.sin_port));
 
-                    // Add the client socket to the set
+                    // Добавление сокса клиента в множество
                     FD_SET(client_sock, &readfds);
 
-                    // Update max_fd if necessary
+                    // Обновление max_fd при необходимости
                     if (client_sock > max_fd) {
                         max_fd = client_sock;
                     }
                 }
             }
 
-            // Check for data on client sockets
+            // Проверка данных на соксах клиентов
             for (int i = server_sock + 1; i <= max_fd; i++) {
                 if (FD_ISSET(i, &temp_fds)) {
                     char buffer[1024];
@@ -111,27 +121,27 @@ int main(int argc, char *argv[]) {
                     if (bytes_read == -1) {
                         perror("Recv failed");
                     } else if (bytes_read == 0) {
-                        // Connection closed by client
+                        // Соединение закрыто клиентом
                         printf("Connection closed by client\n");
                         close(i);
                         FD_CLR(i, &readfds);
                     } else {
                         printf("Received %zd bytes from client\n", bytes_read);
-                        // Process data here if needed
+                        // Обработка данных, если необходимо
                     }
                 }
             }
         }
     }
 
-    // Close all client sockets
+    // Закрытие всех соксов клиентов
     for (int i = server_sock + 1; i <= max_fd; i++) {
         if (FD_ISSET(i, &readfds)) {
             close(i);
         }
     }
 
-    // Close the server socket
+    // Закрытие сокса сервера
     close(server_sock);
     printf("Server is shutting down\n");
     return 0;
