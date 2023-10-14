@@ -59,8 +59,6 @@ int main(int argc, char *argv[]) {
 
     printf("Server is running on port %d\n", port);
 
-    
-
     struct timespec timeout = {5, 0}; // 5 seconds
     sigset_t blockedMask, origMask;
 
@@ -73,12 +71,13 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
+    fd_set readfds;
+    FD_ZERO(&readfds);
+    FD_SET(server_sock, &readfds);
+    int max_fd = server_sock;
+
     while (keep_running) {
-        fd_set readfds;
-        FD_ZERO(&readfds);
-        FD_SET(server_sock, &readfds);
-        int max_fd = server_sock;
-        // Копируем набор дескрипторов, так как select изменяет его
+        // Копируем набор дескрипторов, так как pselect изменяет его
         fd_set temp_fds = readfds;
 
         // Wait for activity on sockets using pselect
@@ -93,26 +92,6 @@ int main(int argc, char *argv[]) {
         } else if (ready_fds == 0) {
             printf("No activity on sockets\n");
         } else {
-            // Проверка входящих соединений
-            if (FD_ISSET(server_sock, &temp_fds)) {
-                if ((client_sock = accept(server_sock, (struct sockaddr *)&client_addr, &client_addr_len)) == -1) {
-                    perror("Accept failed");
-                } else {
-                    // Логгирование нового соединения
-                    char client_ip[INET_ADDRSTRLEN];
-                    inet_ntop(AF_INET, &client_addr.sin_addr, client_ip, sizeof(client_ip));
-                    printf("Accepted connection from %s:%d\n", client_ip, ntohs(client_addr.sin_port));
-
-                    // Добавление сокса клиента в множество
-                    FD_SET(client_sock, &readfds);
-
-                    // Обновление max_fd при необходимости
-                    if (client_sock > max_fd) {
-                        max_fd = client_sock;
-                    }
-                }
-            }
-
             // Проверка данных на соксах клиентов
             for (int i = server_sock + 1; i <= max_fd; i++) {
                 if (FD_ISSET(i, &temp_fds)) {
@@ -129,6 +108,26 @@ int main(int argc, char *argv[]) {
                     } else {
                         printf("Received %zd bytes from client\n", bytes_read);
                         // Обработка данных, если необходимо
+                    }
+                }
+            }
+
+            // Проверка входящих соединений
+            if (FD_ISSET(server_sock, &temp_fds)) {
+                if ((client_sock = accept(server_sock, (struct sockaddr *)&client_addr, &client_addr_len)) == -1) {
+                    perror("Accept failed");
+                } else {
+                    // Логгирование нового соединения
+                    char client_ip[INET_ADDRSTRLEN];
+                    inet_ntop(AF_INET, &client_addr.sin_addr, client_ip, sizeof(client_ip));
+                    printf("Accepted connection from %s:%d\n", client_ip, ntohs(client_addr.sin_port));
+
+                    // Добавление сокса клиента в множество
+                    FD_SET(client_sock, &readfds);
+
+                    // Обновление max_fd при необходимости
+                    if (client_sock > max_fd) {
+                        max_fd = client_sock;
                     }
                 }
             }
