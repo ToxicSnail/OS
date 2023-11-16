@@ -1,4 +1,4 @@
-obj-m += hello_module.o  
+obj-m += lab3.o  
 PWD := $(CURDIR)
 
 all:
