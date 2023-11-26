@@ -5,43 +5,41 @@
 #include <linux/uaccess.h>
 #include <linux/version.h>
 
-#define procfs_name "tsu"
+#define procfs_name "tsulab"
 static struct proc_dir_entry *our_proc_file = NULL;
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 6, 0)
-// Обработчик чтения файла /proc/tsu для версии ядра 5.6.0 и выше
 static ssize_t procfile_read(struct file *file, char __user *buffer, size_t count, loff_t *offset)
 #else
-// Обработчик чтения файла /proc/tsu для версий ядра ниже 5.6.0
 static int procfile_read(struct file *file, char *buffer, size_t length, loff_t *offset)
 #endif
 {
     int ret = 0;
-    char msg[] = "Welcome to Tomsk State University\n";
-    int len = strlen(msg);
+    char cpu_info[256];  // Буфер для хранения информации о процессоре
+
+    // Получение информации о процессоре и запись в буфер
+    snprintf(cpu_info, sizeof(cpu_info), "Processor Information: %s\n", cpuinfo_flag);
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 6, 0)
-    // Для версии ядра 5.6.0 и выше
-    if (*offset >= len) {
+    if (*offset >= strlen(cpu_info)) {
         return 0;
     }
 
-    if (count > len - *offset) {
-        count = len - *offset;
+    if (count > strlen(cpu_info) - *offset) {
+        count = strlen(cpu_info) - *offset;
     }
 
     // Копирование данных в пользовательское пространство
-    ret = raw_copy_to_user(buffer, msg + *offset, count);
+    ret = raw_copy_to_user(buffer, cpu_info + *offset, count);
     if (ret == 0) {
         *offset += count;
         ret = count;
     }
 #else
-    // Для версий ядра ниже 5.6.0
-    if (copy_to_user(buffer, msg, len) != 0) {
+    if (copy_to_user(buffer, cpu_info, strlen(cpu_info)) != 0) {
         ret = -EFAULT;
     } else {
-        ret = len;
+        ret = strlen(cpu_info);
     }
 #endif
 
@@ -49,21 +47,17 @@ static int procfile_read(struct file *file, char *buffer, size_t length, loff_t 
 }
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 6, 0)
-// Структура с указателем на функцию чтения файла для версии ядра 5.6.0 и выше
 static const struct proc_ops proc_file_fops = {
     .proc_read = procfile_read,
 };
 #else
-// Структура с указателем на функцию чтения файла для версий ядра ниже 5.6.0
 static const struct file_operations proc_file_fops = {
     .read = procfile_read,
 };
 #endif
 
-// Функция инициализации модуля
-static int __init hello_module_init(void)
+static int __init tsulab_init(void)
 {
-    // Создание файла /proc/tsu
     our_proc_file = proc_create(procfs_name, 0644, NULL, &proc_file_fops);
 
     if (our_proc_file == NULL) {
@@ -71,20 +65,17 @@ static int __init hello_module_init(void)
         return -ENOMEM;
     }
 
-    pr_info("Welcome to Tomsk State University\n");
+    pr_info("tsulab module loaded\n");
     return 0;
 }
 
-// Функция выгрузки модуля
-static void __exit hello_module_exit(void)
+static void __exit tsulab_exit(void)
 {
-    // Удаление файла /proc/tsu при выгрузке модуля
     proc_remove(our_proc_file);
-    pr_info("Tomsk State University forever!\n");
+    pr_info("tsulab module unloaded\n");
 }
 
-// Регистрация функций инициализации и выгрузки модуля
-module_init(hello_module_init);
-module_exit(hello_module_exit);
+module_init(tsulab_init);
+module_exit(tsulab_exit);
 
 MODULE_LICENSE("GPL");
