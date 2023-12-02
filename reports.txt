@@ -7,3 +7,22 @@ make[1]: Entering directory '/usr/src/linux-headers-5.15.0-76-generic'
   BTF [M] /home/user/Downloads/OS-main/tsulab.ko
 Skipping BTF generation for /home/user/Downloads/OS-main/tsulab.ko due to unavailability of vmlinux
 make[1]: Leaving directory '/usr/src/linux-headers-5.15.0-76-generic'
+
+
+Загрузите модуль в ядро:
+sudo insmod /home/user/Downloads/OS-main/tsulab.ko
+
+Проверьте, загрузился ли модуль:
+lsmod | grep tsulab
+
+Проверьте создание файла /proc/tsulab:
+ls /proc/tsulab
+
+Прочтите содержимое файла /proc/tsulab:
+cat /proc/tsulab
+
+Выгрузите модуль:
+sudo rmmod tsulab
+
+Проверьте вывод dmesg:
+dmesg | tail
