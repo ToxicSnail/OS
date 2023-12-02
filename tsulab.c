@@ -3,6 +3,7 @@
 #include <linux/printk.h>
 #include <linux/proc_fs.h>
 #include <linux/uaccess.h>
+#include <linux/cpu.h>
 #include <linux/version.h>
 
 #define procfs_name "tsulab"
@@ -15,15 +16,14 @@ static int procfile_read(struct file *file, char *buffer, size_t length, loff_t 
 #endif
 {
     int ret = 0;
-    char cpu_info[256];  // Буфер для хранения информации о процессоре
+    char cpu_info[256];
 
-    // Получение информации о процессоре и запись в буфер
-    struct cpuinfo_x86 *c = &cpu_data(0);
-    snprintf(cpu_info, sizeof(cpu_info), "Processor: %s, Family: %d, Model: %d\n",
-             c->x86_model_id, c->x86, c->x86_model);
+    // Получение информации о процессоре
+    struct cpuinfo_x86 *c = &boot_cpu_data;
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 6, 0)
-    if (*offset >= strlen(cpu_info)) {
+    if (*offset >= snprintf(cpu_info, sizeof(cpu_info), "Processor: %s, Family: %d, Model: %d\n",
+                            c->x86_model_id, c->x86, c->x86_model)) {
         return 0;
     }
 
