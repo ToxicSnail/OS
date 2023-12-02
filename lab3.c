@@ -18,7 +18,9 @@ static int procfile_read(struct file *file, char *buffer, size_t length, loff_t 
     char cpu_info[256];  // Буфер для хранения информации о процессоре
 
     // Получение информации о процессоре и запись в буфер
-    snprintf(cpu_info, sizeof(cpu_info), "Processor Information: %s\n", cpuinfo_flag);
+    struct cpuinfo_x86 *c = &cpu_data(0);
+    snprintf(cpu_info, sizeof(cpu_info), "Processor: %s, Family: %d, Model: %d\n",
+             c->x86_model_id, c->x86, c->x86_model);
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 6, 0)
     if (*offset >= strlen(cpu_info)) {
