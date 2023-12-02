@@ -1,12 +1,9 @@
 make -C /lib/modules/5.15.0-76-generic/build M=/home/user/Downloads/OS-main modules
 make[1]: Entering directory '/usr/src/linux-headers-5.15.0-76-generic'
   CC [M]  /home/user/Downloads/OS-main/tsulab.o
-/home/user/Downloads/OS-main/tsulab.c: In function ‘procfile_read’:
-/home/user/Downloads/OS-main/tsulab.c:21:29: error: initialization of ‘struct cpuinfo_x86 *’ from incompatible pointer type ‘char (*)[256]’ [-Werror=incompatible-pointer-types]
-   21 |     struct cpuinfo_x86 *c = &cpu_data(0);
-      |                             ^
-cc1: some warnings being treated as errors
-make[2]: *** [scripts/Makefile.build:297: /home/user/Downloads/OS-main/tsulab.o] Error 1
-make[1]: *** [Makefile:1914: /home/user/Downloads/OS-main] Error 2
+  MODPOST /home/user/Downloads/OS-main/Module.symvers
+  CC [M]  /home/user/Downloads/OS-main/tsulab.mod.o
+  LD [M]  /home/user/Downloads/OS-main/tsulab.ko
+  BTF [M] /home/user/Downloads/OS-main/tsulab.ko
+Skipping BTF generation for /home/user/Downloads/OS-main/tsulab.ko due to unavailability of vmlinux
 make[1]: Leaving directory '/usr/src/linux-headers-5.15.0-76-generic'
-make: *** [Makefile:6: all] Error 2
